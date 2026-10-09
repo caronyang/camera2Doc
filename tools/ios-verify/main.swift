@@ -141,6 +141,7 @@ let files = (try? FileManager.default.contentsOfDirectory(atPath: inDir))?
   .sorted() ?? []
 
 print("== Camera2Doc iOS algorithm verification ==")
+print("CIPerspectiveCorrection inputKeys: \(ScanAlgorithms.perspectiveInputKeys())")
 print("input: \(inDir)  files: \(files.count)")
 
 for f in files {

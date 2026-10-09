@@ -20,6 +20,11 @@ public enum ScanAlgorithms {
 
   public static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
+  /// 診斷用：回傳 CIPerspectiveCorrection 的可用輸入鍵（CI 上可確認參數名稱）
+  public static func perspectiveInputKeys() -> [String] {
+    (CIFilter(name: "CIPerspectiveCorrection")?.inputKeys) ?? []
+  }
+
   // MARK: - 基礎工具
 
   public static func toGray(_ rgba: [UInt8], _ total: Int) -> [UInt8] {
@@ -405,13 +410,19 @@ public enum ScanAlgorithms {
     let outH = max((dist(tl, bl) + dist(tr, br)) / 2.0, 64).rounded()
 
     guard let warp = CIFilter(name: "CIPerspectiveCorrection") else { return nil }
-    warp.setValue(full, forKey: kCIInputImageKey)
-    warp.setValue(CIVector(cgPoint: tl), forKey: "inputCornerTopLeft")
-    warp.setValue(CIVector(cgPoint: tr), forKey: "inputCornerTopRight")
-    warp.setValue(CIVector(cgPoint: bl), forKey: "inputCornerBottomLeft")
-    warp.setValue(CIVector(cgPoint: br), forKey: "inputCornerBottomRight")
-    warp.setValue(NSNumber(value: outW), forKey: "inputWidth")
-    warp.setValue(NSNumber(value: outH), forKey: "inputHeight")
+    // CIPerspectiveCorrection 的正式輸入鍵為 inputTopLeft / inputTopRight / inputBottomLeft / inputBottomRight
+    // （無 inputWidth/Height；輸出範圍由四角推導）。以 inputKeys 守衛避免未知鍵拋 NSException。
+    let keys = Set(warp.inputKeys)
+    func setIfPresent(_ key: String, _ value: Any) {
+      if keys.contains(key) { warp.setValue(value, forKey: key) }
+    }
+    setIfPresent(kCIInputImageKey, full)
+    setIfPresent("inputTopLeft", CIVector(cgPoint: tl))
+    setIfPresent("inputTopRight", CIVector(cgPoint: tr))
+    setIfPresent("inputBottomLeft", CIVector(cgPoint: bl))
+    setIfPresent("inputBottomRight", CIVector(cgPoint: br))
+    setIfPresent("inputWidth", NSNumber(value: outW))
+    setIfPresent("inputHeight", NSNumber(value: outH))
     guard var out = warp.outputImage else { return nil }
     out = out.cropped(to: CGRect(x: 0, y: 0, width: outW, height: outH))
 
