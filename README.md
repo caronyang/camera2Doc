@@ -219,7 +219,7 @@ No personal data is committed to this repository.
 | | |
 |---|---|
 | Android | **Released and verified on a physical device** — the signed APK from [Releases](https://github.com/caronyang/camera2Doc/releases) was installed on a POCO X6 Pro (Android 15) and tested: detection, flatten, deskew, both tones, JPEG/PDF export |
-| iOS | Code complete; compile + algorithm verification run in CI (no Mac available locally). On-device testing pending |
+| iOS | Code complete; **compiles in CI** (`xcodebuild`, simulator) and the algorithm is verified in CI with downloadable artifacts. On-device testing pending (needs EAS Build or sideloading) |
 | Known iOS differences | no CLAHE (approximated by local contrast) and deskew uses the projection method only (no Hough candidates) |
 
 ## Roadmap

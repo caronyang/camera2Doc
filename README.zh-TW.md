@@ -213,7 +213,7 @@ swiftc -O tools/ios-verify/main.swift modules/camera2doc/ios/ScannerAlgorithms.s
 | | |
 |---|---|
 | Android | **已發布並在實機驗證** —— 從 [Releases](https://github.com/caronyang/camera2Doc/releases) 下載的簽名 APK 已安裝於 POCO X6 Pro（Android 15）實測：偵測、攤平、拉直、兩種色調、JPEG/PDF 匯出 |
-| iOS | 程式碼完成；編譯與演算法驗證在 CI 執行（本機無 Mac）。實機測試待進行 |
+| iOS | 程式碼完成；**CI 可編譯通過**（`xcodebuild` 模擬器）且演算法已在 CI 驗證並產出可下載成品。實機測試待進行（需 EAS Build 或側載） |
 | 已知 iOS 差異 | 無 CLAHE（以局部對比近似）；拉直只用投影法（無 Hough 候補） |
 
 ## 後續規劃
