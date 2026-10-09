@@ -27,7 +27,7 @@ jobs:
           swift --version || true
           ls /Applications | grep -i xcode || true
       - name: Install JS dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm ci --no-audit --no-fund || npm ci --no-audit --no-fund
       - name: Prebuild iOS project
         run: npx expo prebuild -p ios --clean --no-install
       - name: Cache CocoaPods + DerivedData

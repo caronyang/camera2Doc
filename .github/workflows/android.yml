@@ -27,7 +27,7 @@ jobs:
           java-version: 17
 
       - name: Install JS dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm ci --no-audit --no-fund || npm ci --no-audit --no-fund
 
       - name: Cache Gradle
         uses: actions/cache@v4
