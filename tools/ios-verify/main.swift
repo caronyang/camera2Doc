@@ -9,6 +9,7 @@
 
 import Foundation
 import CoreGraphics
+import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
 import Vision

@@ -10,9 +10,10 @@ env:
 
 jobs:
   # 1) 編譯檢查：iOS 端程式碼從未在本機編譯過，這一步確保 Swift 語法/API 正確
+  #    註：Expo SDK 57 的依賴需要 Swift 6.2（Xcode 26），故使用 macos-26 runner
   compile:
     name: Compile iOS app (simulator, unsigned)
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -20,6 +21,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version || true
+          ls /Applications | grep -i xcode || true
       - name: Install JS dependencies
         run: npm ci --no-audit --no-fund
       - name: Prebuild iOS project
@@ -42,7 +48,7 @@ jobs:
   #    輸出 JPEG 作為 artifact，可直接與 Android 成品並排比較（不需 Mac 也能驗證 iOS 演算法）
   algorithms:
     name: iOS algorithm verification
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
