@@ -305,12 +305,12 @@ public enum ScanAlgorithms {
     for i in 0..<gray.count where Double(gray[i]) < th {
       bin[i] = 1
     }
-    let s0 = projectionScore(bin, sw, sh, 0.0)
+    let s0 = projectionScore(bin, sw, sh, angleDeg: 0.0)
     var best = 0.0
     var bestScore = s0
     var ang = -12.0
     while ang <= 12.0 {
-      let sc = projectionScore(bin, sw, sh, ang)
+      let sc = projectionScore(bin, sw, sh, angleDeg: ang)
       if sc > bestScore {
         bestScore = sc
         best = ang
@@ -319,7 +319,7 @@ public enum ScanAlgorithms {
     }
     var a2 = best - 0.6
     while a2 <= best + 0.6 {
-      let sc = projectionScore(bin, sw, sh, a2)
+      let sc = projectionScore(bin, sw, sh, angleDeg: a2)
       if sc > bestScore {
         bestScore = sc
         best = a2
