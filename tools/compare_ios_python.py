@@ -36,6 +36,28 @@ def metrics(bgr):
     return p85, ink_mean, ink_pct
 
 
+def pad_a4(bgr):
+    """與 iOS/Android 的 padToA4 一致：置中貼到 1:√2 白底"""
+    h, w = bgr.shape[:2]
+    ar = 1.4142
+    cw, ch = w, h
+    if h >= w:
+        if h / w < ar:
+            ch = int(round(w * ar))
+        else:
+            cw = int(round(h / ar))
+    else:
+        if w / h < ar:
+            cw = int(round(h * ar))
+        else:
+            ch = int(round(w / ar))
+    canvas = np.full((ch, cw, 3), 255, np.uint8)
+    y0 = (ch - h) // 2
+    x0 = (cw - w) // 2
+    canvas[y0:y0 + h, x0:x0 + w] = bgr
+    return canvas
+
+
 def warp(full, corners):
     h, w = full.shape[:2]
     src = np.array(corners, np.float32).reshape(4, 2) * np.array([w, h], np.float32)
@@ -56,7 +78,7 @@ def main():
             print(f"{name}: cannot read")
             continue
         flat = warp(full, corners)
-        py = {"original": color_v6(flat), "copy": copy_v7(flat)}
+        py = {"original": pad_a4(color_v6(flat)), "copy": pad_a4(copy_v7(flat))}
         for mode in ("original", "copy"):
             p85, ink, pct = metrics(py[mode])
             print(f"{name:12s} {mode:8s} {'python':7s} {p85:5.0f} {ink:8.0f} {pct:8.2f}")

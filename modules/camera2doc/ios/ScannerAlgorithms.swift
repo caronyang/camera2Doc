@@ -424,6 +424,17 @@ public enum ScanAlgorithms {
     setIfPresent("inputWidth", NSNumber(value: outW))
     setIfPresent("inputHeight", NSNumber(value: outH))
     guard var out = warp.outputImage else { return nil }
+    // 重要：CIPerspectiveCorrection 的輸出尺寸是「四角包圍盒」，而 OpenCV 的 warpPerspective
+    // 是我們指定的 W×H（邊長平均）。若不歸一化就直接裁到 W×H，會把內容裁掉一塊（實測發現）。
+    // 這裡先平移到原點、再縮放到 W×H，使語義與 Android 完全一致。
+    let bbox = out.extent
+    if bbox.width > 1, bbox.height > 1 {
+      out = out.transformed(by: CGAffineTransform(translationX: -bbox.minX, y: -bbox.minY))
+      out = out.transformed(by: CGAffineTransform(
+        scaleX: CGFloat(outW / Double(bbox.width)),
+        y: CGFloat(outH / Double(bbox.height))
+      ))
+    }
     out = out.cropped(to: CGRect(x: 0, y: 0, width: outW, height: outH))
 
     let scale = min(1.0, maxDim / max(outW, outH))
