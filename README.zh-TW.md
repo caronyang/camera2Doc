@@ -4,6 +4,14 @@
 
 [English](README.md) | **繁體中文**
 
+## 下載安裝（Android）
+
+**[⬇️ 下載最新 APK](https://github.com/caronyang/camera2Doc/releases/latest)** —— 獨立安裝檔，不需要 Metro 開發伺服器。
+
+* 套件 `com.caron.camera2doc` · `arm64-v8a` · minSdk 24（Android 7 以上）
+* 安裝時請允許「安裝未知來源應用程式」；若手機上已有用其他簽名金鑰安裝的版本，請先解除安裝
+* APK 以專案正式金鑰簽名，SHA-256 列於 release 說明中
+
 Camera2Doc 是一個手機**文件掃描** App，以 React Native / Expo 加上本地原生模組實作
 （Android 用 OpenCV，iOS 用 Vision + CoreImage + Accelerate）。功能刻意保持精簡，只做四件事：
 
@@ -136,6 +144,22 @@ npm install
 npx expo prebuild -p ios      # ios/ 目錄刻意不入庫
 npx expo run:ios
 ```
+
+### 正式版建置（簽名 APK）
+
+```bash
+# 一次性：建立 keystore（不入版控）與 android/keystore.properties
+keytool -genkeypair -v -keystore android/app/camera2doc-release.keystore \
+  -alias camera2doc -keyalg RSA -keysize 2048 -validity 10000
+# android/keystore.properties（已 gitignore）：
+#   storeFile=camera2doc-release.keystore
+#   storePassword=... keyAlias=camera2doc keyPassword=...
+
+cd android && ./gradlew :app:assembleRelease
+# -> android/app/build/outputs/apk/release/app-release.apk（arm64-v8a，已簽名）
+```
+
+⚠️ **請務必備份 keystore 與密碼。** 日後要更新已安裝的 App，必須用同一把金鑰簽名，否則 Android 會拒絕覆蓋安裝。
 
 ### 只改 JS 時的迭代
 

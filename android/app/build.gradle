@@ -96,6 +96,12 @@ android {
         versionName "1.0.0"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
+
+        // 只打包 arm64-v8a：OpenCV AAR 內含 4 種 ABI 的 .so，全打進去會讓 APK 暴增到 ~115MB。
+        // 現代 Android 手機皆為 arm64；如需 x86_64 模擬器請移除本區塊。
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
     }
     signingConfigs {
         debug {
@@ -104,15 +110,32 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            // 由 android/keystore.properties 讀取（該檔與 .keystore 皆已 gitignore，不會進版控）
+            def propsFile = rootProject.file('keystore.properties')
+            if (propsFile.exists()) {
+                def props = new Properties()
+                props.load(new FileInputStream(propsFile))
+                storeFile file(props['storeFile'])
+                storePassword props['storePassword']
+                keyAlias props['keyAlias']
+                keyPassword props['keyPassword']
+            } else {
+                // 無簽名設定時退回 debug keystore（僅供本機測試，勿用於發布）
+                storeFile file('debug.keystore')
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // 使用正式 keystore 簽名（見 android/keystore.properties）
+            signingConfig signingConfigs.release
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds

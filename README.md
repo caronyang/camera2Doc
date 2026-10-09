@@ -4,6 +4,14 @@
 
 **English** | [繁體中文](README.zh-TW.md)
 
+## Download (Android)
+
+**[⬇️ Download the latest APK](https://github.com/caronyang/camera2Doc/releases/latest)** — standalone build, no dev server required.
+
+* Package `com.caron.camera2doc` · `arm64-v8a` · minSdk 24 (Android 7+)
+* Allow "install unknown apps" when prompted. If a previous build signed with a different key is installed, uninstall it first.
+* The APK is signed with the project release key; its SHA-256 is listed in the release notes.
+
 Camera2Doc is a mobile **document scanner** built with React Native / Expo plus a local native module
 (OpenCV on Android, Vision + CoreImage + Accelerate on iOS). It does exactly four things, and tries to
 do them well:
@@ -140,6 +148,23 @@ npm install
 npx expo prebuild -p ios      # the ios/ folder is intentionally not committed
 npx expo run:ios
 ```
+
+### Release build (signed APK)
+
+```bash
+# one-time: create a keystore (kept out of git) and android/keystore.properties
+keytool -genkeypair -v -keystore android/app/camera2doc-release.keystore \
+  -alias camera2doc -keyalg RSA -keysize 2048 -validity 10000
+# android/keystore.properties (git-ignored):
+#   storeFile=camera2doc-release.keystore
+#   storePassword=... keyAlias=camera2doc keyPassword=...
+
+cd android && ./gradlew :app:assembleRelease
+# -> android/app/build/outputs/apk/release/app-release.apk  (arm64-v8a, signed)
+```
+
+⚠️ **Back up the keystore and its passwords.** Every future update of an installed app must be signed
+with the same key, otherwise Android refuses to install it over the existing one.
 
 ### JS-only iteration
 

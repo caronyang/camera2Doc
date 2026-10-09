@@ -56,3 +56,8 @@ tools/out_v*/
 tools/ios-verify/out*/
 ci-out/
 
+# Android 簽名：keystore 與密碼檔絕不進版控（請自行備份）
+android/keystore.properties
+*.keystore
+*.jks
+
