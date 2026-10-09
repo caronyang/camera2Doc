@@ -1,7 +1,6 @@
 import Foundation
 import CoreGraphics
 import CoreImage
-import Accelerate
 
 /**
  * Camera2Doc 純算法層（不依賴 ExpoModulesCore / UIKit）
@@ -12,7 +11,10 @@ import Accelerate
  *
  * 管線與 Android/Kotlin 版一致（v6/v7 定案）：
  *   original: 增益場白化(245/1.8) + 逐像素防截斷 + HSV 紙面消彩(205/45) + 亮度域 unsharp(σ1.2, 0.9)
- *   copy    : 增益場歸一化(255/2.4) + CLAHE 近似 + S 曲線 + 墨跡軟填充(160/0.75/70) + unsharp(σ1.2, 2.2)
+ *   copy    : 增益場歸一化(255/2.4) + 局部對比近似 CLAHE + S 曲線 + 墨跡軟填充(160/0.75/70) + unsharp(σ1.2, 2.2)
+ *
+ * 濾波一律使用 CoreImage（CIGaussianBlur / CIMorphologyRectangle* / CILanczosScaleTransform），
+ * 像素級運算使用純 Swift 迴圈，避免 Accelerate vImage 的指標生命週期與 API 名稱風險。
  */
 public enum ScanAlgorithms {
 
@@ -24,8 +26,10 @@ public enum ScanAlgorithms {
     var gray = [UInt8](repeating: 0, count: total)
     for i in 0..<total {
       let o = i * 4
-      gray[i] = UInt8(
-        (UInt32(rgba[o]) * 299 + UInt32(rgba[o + 1]) * 587 + UInt32(rgba[o + 2]) * 115 + 500) / 1000)
+      let r = Int(rgba[o])
+      let g = Int(rgba[o + 1])
+      let b = Int(rgba[o + 2])
+      gray[i] = UInt8((r * 299 + g * 587 + b * 115 + 500) / 1000)
     }
     return gray
   }
@@ -43,64 +47,98 @@ public enum ScanAlgorithms {
     return 255
   }
 
-  /// 1/4 降採樣 + 大核中值（vImage 無中值，以閉運算近似）+ 上採樣平滑 -> 紙面亮度模型
+  // MARK: - CoreImage 灰階 I/O 與濾波
+
+  /// [UInt8] 灰階 -> CIImage
+  static func grayCI(_ gray: [UInt8], _ w: Int, _ h: Int) -> CIImage? {
+    guard let provider = CGDataProvider(data: Data(gray) as CFData) else { return nil }
+    let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue)
+    guard let cg = CGImage(
+      width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: w,
+      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: info,
+      provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent
+    ) else { return nil }
+    return CIImage(cgImage: cg)
+  }
+
+  /// CGImage -> [UInt8] 灰階（尺寸不符時以 draw 縮放）
+  static func grayBytes(_ cg: CGImage, _ w: Int, _ h: Int) -> [UInt8]? {
+    guard let ctx = CGContext(
+      data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
+      space: CGColorSpaceCreateDeviceGray(),
+      bitmapInfo: CGImageAlphaInfo.none.rawValue
+    ) else { return nil }
+    ctx.interpolationQuality = .high
+    ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+    guard let ptr = ctx.data else { return nil }
+    return [UInt8](UnsafeBufferPointer(start: ptr.bindMemory(to: UInt8.self, capacity: w * h), count: w * h))
+  }
+
+  /// 以指定半徑做高斯模糊（σ ≈ radius），回傳與輸入同尺寸
+  static func gaussianBlur(_ gray: [UInt8], _ w: Int, _ h: Int, radius: Double) -> [UInt8]? {
+    guard radius > 0.05, let ci = grayCI(gray, w, h) else { return gray }
+    guard let f = CIFilter(name: "CIGaussianBlur", parameters: [
+      kCIInputImageKey: ci,
+      kCIInputRadiusKey: radius,
+    ]), let out = f.outputImage else { return nil }
+    let rect = CGRect(x: 0, y: 0, width: w, height: h)
+    guard let cg = ciContext.createCGImage(out, from: rect) else { return nil }
+    return grayBytes(cg, w, h)
+  }
+
+  /// 1/4 降採樣 + 形態學閉運算 + 上採樣 + 大核高斯 -> 紙面亮度模型（Float, >=60）
+  /// 對應 Android 的 estimateBg（1/4 中值）；CoreImage 無中值，以閉運算近似。
   public static func estimateBG(_ gray: [UInt8], _ w: Int, _ h: Int) -> [Float]? {
     let sw = max(w / 4, 2)
     let sh = max(h / 4, 2)
-    var small = [UInt8](repeating: 255, count: sw * sh)
-    for y in 0..<sh {
-      let y0 = y * 4
-      let y1 = min(y0 + 4, h)
-      for x in 0..<sw {
-        let x0 = x * 4
-        let x1 = min(x0 + 4, w)
-        var sum = 0
-        var cnt = 0
-        for yy in y0..<y1 {
-          let row = yy * w
-          for xx in x0..<x1 {
-            sum += Int(gray[row + xx])
-            cnt += 1
-          }
-        }
-        small[y * sw + x] = cnt > 0 ? UInt8(sum / cnt) : 255
-      }
-    }
+    guard let ci = grayCI(gray, w, h) else { return nil }
+
+    // 降採樣
+    guard let down = CIFilter(name: "CILanczosScaleTransform", parameters: [
+      kCIInputImageKey: ci,
+      kCIInputScaleKey: Double(sw) / Double(w),
+      kCIInputAspectRatioKey: 1.0,
+    ])?.outputImage else { return nil }
+    let smallRect = CGRect(x: 0, y: 0, width: sw, height: sh)
+    let small = down.cropped(to: smallRect)
+
+    // 形態學閉運算（先膨脹後侵蝕），核大小對應 Android 的 min(sw,sh)/8
     var k = max((min(sw, sh) / 8) | 1, 11)
-    k = min(k, 255)
     if k % 2 == 0 { k += 1 }
+    let maxF = CIFilter(name: "CIMorphologyRectangleMaximum", parameters: [
+      kCIInputImageKey: small,
+      "inputWidth": k,
+      "inputHeight": k,
+    ])
+    guard let dilated = maxF?.outputImage else { return nil }
+    let minF = CIFilter(name: "CIMorphologyRectangleMinimum", parameters: [
+      kCIInputImageKey: dilated,
+      "inputWidth": k,
+      "inputHeight": k,
+    ])
+    guard let closed = minF?.outputImage else { return nil }
 
-    var smallBuf = vImage_Buffer(data: &small, height: vImagePixelCount(sh), width: vImagePixelCount(sw), rowBytes: sw)
-    var dilBuf = [UInt8](repeating: 0, count: sw * sh)
-    var workBuf = vImage_Buffer(data: &dilBuf, height: vImagePixelCount(sh), width: vImagePixelCount(sw), rowBytes: sw)
-    var ok = false
-    var kernel = [UInt8](repeating: 1, count: k * k)
-    kernel.withUnsafeBufferPointer { kp in
-      var ks = vImageConvolutionKernel_u8(kp.baseAddress, Int32(k), Int32(k))
-      let e1 = vImageDilate_Planar8(&smallBuf, &workBuf, 0, 0, UInt8(k), UInt8(k), &ks, kvImageExpandEdge)
-      let e2 = vImageErode_Planar8(&workBuf, &smallBuf, 0, 0, UInt8(k), UInt8(k), &ks, kvImageExpandEdge)
-      ok = (e1 == kvImageNoError) && (e2 == kvImageNoError)
-    }
-    guard ok else { return nil }
+    // 上採樣回原尺寸 + 大核高斯平滑
+    guard let up = CIFilter(name: "CILanczosScaleTransform", parameters: [
+      kCIInputImageKey: closed,
+      kCIInputScaleKey: Double(w) / Double(sw),
+      kCIInputAspectRatioKey: 1.0,
+    ])?.outputImage else { return nil }
+    guard let blur = CIFilter(name: "CIGaussianBlur", parameters: [
+      kCIInputImageKey: up,
+      kCIInputRadiusKey: 12.0,
+    ])?.outputImage else { return nil }
 
-    var bg = [UInt8](repeating: 255, count: w * h)
-    var bgBlur = [UInt8](repeating: 255, count: w * h)
-    var bgBuf = vImage_Buffer(data: &bg, height: vImagePixelCount(h), width: vImagePixelCount(w), rowBytes: w)
-    var blurBuf = vImage_Buffer(data: &bgBlur, height: vImagePixelCount(h), width: vImagePixelCount(w), rowBytes: w)
-    guard vImageScale_Planar8(&smallBuf, &bgBuf, nil, kvImageNoFlags) == kvImageNoError,
-          vImageGaussianBlur_Planar8(&bgBuf, &blurBuf, 12, 0, kvImageEdgeExtend) == kvImageNoError
-    else { return nil }
-    return bgBlur.map { max(Float($0), 60.0) }
+    let rect = CGRect(x: 0, y: 0, width: w, height: h)
+    guard let cg = ciContext.createCGImage(blur, from: rect), let bytes = grayBytes(cg, w, h) else { return nil }
+    return bytes.map { max(Float($0), 60.0) }
   }
 
   /// 亮度域 unsharp：delta=(luma-blur)*(strength-amount)，等量加三通道（色相零變動）
-  public static func unsharpRGBA(_ rgba: inout [UInt8], _ w: Int, _ h: Int, radius: UInt, strength: Double, amount: Double) {
+  public static func unsharpRGBA(_ rgba: inout [UInt8], _ w: Int, _ h: Int, sigma: Double, strength: Double, amount: Double) {
     let total = w * h
-    var gray = toGray(rgba, total)
-    var blurred = [UInt8](repeating: 0, count: total)
-    var srcBuf = vImage_Buffer(data: &gray, height: vImagePixelCount(h), width: vImagePixelCount(w), rowBytes: w)
-    var dstBuf = vImage_Buffer(data: &blurred, height: vImagePixelCount(h), width: vImagePixelCount(w), rowBytes: w)
-    guard vImageGaussianBlur_Planar8(&srcBuf, &dstBuf, radius, 0, kvImageEdgeExtend) == kvImageNoError else { return }
+    let gray = toGray(rgba, total)
+    guard let blurred = gaussianBlur(gray, w, h, radius: sigma) else { return }
     let k = strength - amount
     for i in 0..<total {
       let delta = (Double(gray[i]) - Double(blurred[i])) * k
@@ -144,7 +182,7 @@ public enum ScanAlgorithms {
         rgba[o + 2] = UInt8(min(255.0, mx - (mx - b) * 0.35))
       }
     }
-    unsharpRGBA(&rgba, w, h, radius: 3, strength: 1.9, amount: 0.9)
+    unsharpRGBA(&rgba, w, h, sigma: 1.2, strength: 1.9, amount: 0.9)
   }
 
   // MARK: - 影印（v7）
@@ -156,27 +194,25 @@ public enum ScanAlgorithms {
     for v in 0...255 {
       var i = 0
       while i < xs.count - 2 && xs[i + 1] <= v { i += 1 }
-      let x0 = xs[i]; let y0 = ys[i]; let x1 = xs[i + 1]; let y1 = ys[i + 1]
+      let x0 = xs[i]
+      let y0 = ys[i]
+      let x1 = xs[i + 1]
+      let y1 = ys[i + 1]
       let t = min(max(Double(v - x0) / Double(x1 - x0), 0.0), 1.0)
       curve[v] = UInt8(min(255.0, (Double(y0) + Double(y1 - y0) * t).rounded()))
     }
     return curve
   }
 
-  /// CLAHE 近似：vImage 無 CLAHE，以「局部對比增強」替代（大核 unsharp 的差值作為局部對比）
-  /// 與 Android 的 CLAHE(3.0) 目標一致：拉開局部明暗，讓細字更實
-  private static func localContrast(_ gray: inout [UInt8], _ w: Int, _ h: Int) {
+  /// CLAHE 近似：以「大核模糊的差值」做局部對比增強，效果取向與 Android 的 CLAHE(3.0) 一致
+  static func localContrast(_ gray: inout [UInt8], _ w: Int, _ h: Int) {
     let total = w * h
-    var blurred = [UInt8](repeating: 0, count: total)
-    var srcBuf = vImage_Buffer(data: &gray, height: vImagePixelCount(h), width: vImagePixelCount(w), rowBytes: w)
-    var dstBuf = vImage_Buffer(data: &blurred, height: vImagePixelCount(h), width: vImagePixelCount(w), rowBytes: w)
-    let r = max(vImagePixelCount(min(w, h) / 40), 8)
-    guard vImageGaussianBlur_Planar8(&srcBuf, &dstBuf, r, 0, kvImageEdgeExtend) == kvImageNoError else { return }
+    let radius = max(Double(min(w, h)) / 40.0, 8.0)
+    guard let blurred = gaussianBlur(gray, w, h, radius: radius) else { return }
     for i in 0..<total {
       let v = Double(gray[i])
       let local = Double(blurred[i])
-      let boosted = v + (v - local) * 0.6 // 局部對比
-      gray[i] = UInt8(max(0.0, min(255.0, boosted)))
+      gray[i] = UInt8(max(0.0, min(255.0, v + (v - local) * 0.6)))
     }
   }
 
@@ -190,18 +226,17 @@ public enum ScanAlgorithms {
       norm[i] = UInt8(min(255.0, Double(gray0[i]) * gain))
     }
     localContrast(&norm, w, h) // CLAHE 近似
+
     let curve = buildSCurve()
     var toned = [UInt8](repeating: 0, count: total)
     for i in 0..<total {
       toned[i] = curve[Int(norm[i])]
     }
-    // 墨跡軟填充：不膨脹，羽化 mask 把筆畫灰邊壓到 <=70（blend 0.75）
+
+    // 墨跡軟填充：不做膨脹（筆畫不變粗），羽化遮罩把筆畫灰邊壓到 <=70（blend 0.75）
     var ink = [UInt8](repeating: 0, count: total)
     for i in 0..<total { ink[i] = toned[i] < 160 ? 255 : 0 }
-    var alpha = [UInt8](repeating: 0, count: total)
-    var inkBuf = vImage_Buffer(data: &ink, height: vImagePixelCount(h), width: vImagePixelCount(w), rowBytes: w)
-    var alphaBuf = vImage_Buffer(data: &alpha, height: vImagePixelCount(h), width: vImagePixelCount(w), rowBytes: w)
-    if vImageGaussianBlur_Planar8(&inkBuf, &alphaBuf, 2, 0, kvImageEdgeExtend) == kvImageNoError {
+    if let alpha = gaussianBlur(ink, w, h, radius: 2.0) {
       for i in 0..<total {
         let a = Double(alpha[i]) / 255.0 * 0.75
         let t = Double(toned[i])
@@ -209,13 +244,14 @@ public enum ScanAlgorithms {
         toned[i] = UInt8(max(0.0, min(255.0, t * (1 - a) + dark * a)))
       }
     }
+
     for i in 0..<total {
       let o = i * 4
       rgba[o] = toned[i]
       rgba[o + 1] = toned[i]
       rgba[o + 2] = toned[i]
     }
-    unsharpRGBA(&rgba, w, h, radius: 3, strength: 2.2, amount: 1.2)
+    unsharpRGBA(&rgba, w, h, sigma: 1.2, strength: 2.2, amount: 1.2)
   }
 
   // MARK: - 拉直（投影輪廓法，與 Python/Kotlin 同一取樣式）
@@ -257,8 +293,10 @@ public enum ScanAlgorithms {
       for x in 0..<sw {
         let sx = min(Int(Double(x) / scale), w - 1)
         let o = (sy * w + sx) * 4
-        gray[y * sw + x] = UInt8(
-          (UInt32(rgba[o]) * 299 + UInt32(rgba[o + 1]) * 587 + UInt32(rgba[o + 2]) * 115 + 500) / 1000)
+        let r = Int(rgba[o])
+        let g = Int(rgba[o + 1])
+        let b = Int(rgba[o + 2])
+        gray[y * sw + x] = UInt8((r * 299 + g * 587 + b * 115 + 500) / 1000)
       }
     }
     let paper = percentile(gray, 85.0)
@@ -298,15 +336,13 @@ public enum ScanAlgorithms {
 
   public static func makeCGFromRGBA(_ rgba: [UInt8], _ w: Int, _ h: Int) -> CGImage? {
     guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
-          let ctx = CGContext(
-            data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: sRGB,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+          let provider = CGDataProvider(data: Data(rgba) as CFData),
+          let cg = CGImage(
+            width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4,
+            space: sRGB, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent
           ) else { return nil }
-    var copy = rgba
-    copy.withUnsafeMutableBytes { ptr in
-      ctx.data?.copyMemory(from: ptr.baseAddress!, byteCount: w * h * 4)
-    }
-    return ctx.makeImage()
+    return cg
   }
 
   public static func filledWhite(_ src: CGImage) -> CGImage? {
@@ -360,7 +396,10 @@ public enum ScanAlgorithms {
     func px(_ i: Int) -> CGPoint {
       CGPoint(x: corners[i * 2] * W, y: H - corners[i * 2 + 1] * H) // 轉 CI 座標（左下原點）
     }
-    let tl = px(0), tr = px(1), br = px(2), bl = px(3)
+    let tl = px(0)
+    let tr = px(1)
+    let br = px(2)
+    let bl = px(3)
     func dist(_ a: CGPoint, _ b: CGPoint) -> Double { Double(hypot(a.x - b.x, a.y - b.y)) }
     let outW = max((dist(tl, tr) + dist(bl, br)) / 2.0, 64).rounded()
     let outH = max((dist(tl, bl) + dist(tr, br)) / 2.0, 64).rounded()
