@@ -1,6 +1,14 @@
 # Camera2Doc
 
 [![iOS CI](https://github.com/caronyang/camera2Doc/actions/workflows/ios.yml/badge.svg)](https://github.com/caronyang/camera2Doc/actions/workflows/ios.yml)
+[![Android CI](https://github.com/caronyang/camera2Doc/actions/workflows/android.yml/badge.svg)](https://github.com/caronyang/camera2Doc/actions/workflows/android.yml)
+
+![platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-blue)
+![Expo SDK](https://img.shields.io/badge/Expo%20SDK-57-000020)
+![React Native](https://img.shields.io/badge/React%20Native-0.86-61dafb)
+![TypeScript](https://img.shields.io/badge/TypeScript-6-3178c6)
+![UI](https://img.shields.io/badge/UI-English%20%7C%20%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-orange)
+![license](https://img.shields.io/badge/license-MIT-green)
 
 [English](README.md) | **繁體中文**
 
@@ -13,7 +21,7 @@
 * APK 以專案正式金鑰簽名，SHA-256 列於 release 說明中
 
 Camera2Doc 是一個手機**文件掃描** App，以 React Native / Expo 加上本地原生模組實作
-（Android 用 OpenCV，iOS 用 Vision + CoreImage + Accelerate）。功能刻意保持精簡，只做四件事：
+（Android 用 OpenCV，iOS 用 Vision + CoreImage）。功能刻意保持精簡，只做四件事：
 
 1. **拍照轉文件**（相機拍攝或從相簿匯入）
 2. **攤平 + 拉直**成 A4 比例、不歪斜的影像

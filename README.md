@@ -1,6 +1,14 @@
 # Camera2Doc
 
 [![iOS CI](https://github.com/caronyang/camera2Doc/actions/workflows/ios.yml/badge.svg)](https://github.com/caronyang/camera2Doc/actions/workflows/ios.yml)
+[![Android CI](https://github.com/caronyang/camera2Doc/actions/workflows/android.yml/badge.svg)](https://github.com/caronyang/camera2Doc/actions/workflows/android.yml)
+
+![platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-blue)
+![Expo SDK](https://img.shields.io/badge/Expo%20SDK-57-000020)
+![React Native](https://img.shields.io/badge/React%20Native-0.86-61dafb)
+![TypeScript](https://img.shields.io/badge/TypeScript-6-3178c6)
+![UI](https://img.shields.io/badge/UI-English%20%7C%20%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-orange)
+![license](https://img.shields.io/badge/license-MIT-green)
 
 **English** | [繁體中文](README.zh-TW.md)
 
@@ -13,7 +21,7 @@
 * The APK is signed with the project release key; its SHA-256 is listed in the release notes.
 
 Camera2Doc is a mobile **document scanner** built with React Native / Expo plus a local native module
-(OpenCV on Android, Vision + CoreImage + Accelerate on iOS). It does exactly four things, and tries to
+(OpenCV on Android, Vision + CoreImage on iOS). It does exactly four things, and tries to
 do them well:
 
 1. **Photo → document** (camera capture or import from the gallery)
