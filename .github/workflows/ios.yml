@@ -1,0 +1,71 @@
+name: iOS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  EXPO_NO_TELEMETRY: 1
+
+jobs:
+  # 1) 編譯檢查：iOS 端程式碼從未在本機編譯過，這一步確保 Swift 語法/API 正確
+  compile:
+    name: Compile iOS app (simulator, unsigned)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install JS dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Prebuild iOS project
+        run: npx expo prebuild -p ios --clean --no-install
+      - name: CocoaPods install
+        run: cd ios && pod install
+      - name: List workspace/schemes
+        run: xcodebuild -workspace ios/camera2Doc.xcworkspace -list
+      - name: Build for simulator
+        run: |
+          xcodebuild -workspace ios/camera2Doc.xcworkspace \
+            -scheme camera2Doc \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+  # 2) 演算法驗證：用與 App 完全相同的 ScannerAlgorithms 在 macOS 上跑真實/合成測試圖，
+  #    輸出 JPEG 作為 artifact，可直接與 Android 成品並排比較（不需 Mac 也能驗證 iOS 演算法）
+  algorithms:
+    name: iOS algorithm verification
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build verifier (swiftc)
+        run: |
+          mkdir -p ci-out
+          swiftc -O tools/ios-verify/main.swift modules/camera2doc/ios/ScannerAlgorithms.swift -o verify
+      - name: Generate synthetic test images
+        run: ./verify --make-synthetic ci-out/synth
+      - name: Run algorithms on synthetic images
+        run: ./verify ci-out/synth ci-out/out_synth ci-out/synth/corners.json
+      - name: Run algorithms on samples (if provided)
+        run: |
+          if [ -d samples ] && [ "$(ls -A samples 2>/dev/null)" ]; then
+            ./verify samples ci-out/out_samples
+          else
+            echo "samples/ is empty — synthetic verification only"
+          fi
+      - name: Upload outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-algorithm-output
+          path: |
+            ci-out/out_synth
+            ci-out/out_samples
+          if-no-files-found: warn

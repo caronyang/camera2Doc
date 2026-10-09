@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["Camera2DocModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.camera2doc.Camera2DocModule"]
+  }
+}

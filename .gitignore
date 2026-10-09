@@ -1,0 +1,58 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+example
+
+# generated native folders:
+# 探取「native 目錄入库」模式（CNG 停用）：android/ 已生成並保留；
+# ios/ 請在 macOS 執行 `npx expo prebuild -p ios` 生成後保留入库。
+android/.gradle/
+android/app/build/
+android/build/
+**/build/
+modules/*/android/build/
+ios/build/
+ios/Pods/
+
+# 隱私：私人測試照片（含個資）絕不進版控。
+# 公開測試圖請放 samples/（無個資，供 CI 與 README 使用）
+TEST_IMAGE/
+tools/out_v*/
+tools/ios-verify/out*/
+ci-out/
+
