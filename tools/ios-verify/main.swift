@@ -92,6 +92,16 @@ func makeSynthetic(_ dir: String) {
     ctx.fill(CGRect(x: W * 0.08, y: H * 0.9, width: W * 0.5, height: H * 0.03))
     ctx.setFillColor(CGColor(red: 0.12, green: 0.25, blue: 0.8, alpha: 1))
     ctx.fill(CGRect(x: W * 0.08, y: H * 0.85, width: W * 0.35, height: H * 0.025))
+    // 四角方位標記（決定性驗證：輸出必須是 紅=左上 綠=右上 藍=左下 黃=右下）
+    let m = W * 0.12
+    func marker(_ x: Double, _ y: Double, _ r: Double, _ g: Double, _ b: Double) {
+      ctx.setFillColor(CGColor(red: r, green: g, blue: b, alpha: 1))
+      ctx.fill(CGRect(x: x, y: y, width: m, height: m * 0.6))
+    }
+    marker(W * 0.03, H * 0.94 - m * 0.6, 1, 0, 0) // 左上 紅
+    marker(W * 0.97 - m, H * 0.94 - m * 0.6, 0, 0.8, 0) // 右上 綠
+    marker(W * 0.03, H * 0.06, 0, 0.2, 1) // 左下 藍
+    marker(W * 0.97 - m, H * 0.06, 1, 0.9, 0) // 右下 黃
     // 文字筆畫（黑，隨機長條）
     ctx.setFillColor(CGColor(red: 0.05, green: 0.05, blue: 0.05, alpha: 1))
     var y = H * 0.80
@@ -115,8 +125,31 @@ func makeSynthetic(_ dir: String) {
   }
 }
 
-// MARK: - main
+/// 將歸一化四角畫在源圖上（診斷用）
+func drawCorners(_ cg: CGImage, _ corners: [Double]) -> CGImage? {
+  let w = cg.width
+  let h = cg.height
+  guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
+        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: sRGB, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+  ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+  ctx.setStrokeColor(CGColor(red: 0, green: 0.5, blue: 1, alpha: 1))
+  ctx.setLineWidth(max(Double(w) / 300.0, 2))
+  let pts = (0..<4).map { CGPoint(x: corners[$0 * 2] * Double(w), y: (1 - corners[$0 * 2 + 1]) * Double(h)) }
+  ctx.beginPath()
+  ctx.move(to: pts[0])
+  for p in pts.dropFirst() { ctx.addLine(to: p) }
+  ctx.closePath()
+  ctx.strokePath()
+  ctx.setFillColor(CGColor(red: 1, green: 0.2, blue: 0.2, alpha: 1))
+  for p in pts {
+    ctx.fillEllipse(in: CGRect(x: p.x - Double(w) / 150.0, y: p.y - Double(w) / 150.0,
+                               width: Double(w) / 75.0, height: Double(w) / 75.0))
+  }
+  return ctx.makeImage()
+}
 
+// MARK: - main
 let args = CommandLine.arguments
 if args.count >= 3, args[1] == "--make-synthetic" {
   makeSynthetic(args[2])
@@ -150,9 +183,18 @@ for f in files {
     print("[\(f)] SKIP (decode failed)")
     continue
   }
-  var corners = detectCornersVision(cg)
-  let src = corners != nil ? "vision" : "corners.json"
-  if corners == nil { corners = cornerMap[f] }
+  // 合成圖一律使用 corners.json（Vision 對無真實紙邊的合成圖會亂猜）；
+  // 真實照片優先 Vision，失敗才回退 corners.json
+  var corners: [Double]?
+  var src = ""
+  if f.hasPrefix("synthetic"), let c = cornerMap[f] {
+    corners = c
+    src = "corners.json"
+  } else {
+    corners = detectCornersVision(cg)
+    src = corners != nil ? "vision" : "corners.json"
+    if corners == nil { corners = cornerMap[f] }
+  }
   guard let c = corners else {
     print("[\(f)] SKIP (no corners)")
     continue
@@ -160,6 +202,10 @@ for f in files {
   print("[\(f)] corners from \(src): \(c.map { String(format: "%.3f", $0) }.joined(separator: ","))")
 
   let base = (f as NSString).deletingPathExtension
+  // 診斷：把四角畫在源圖上輸出（判斷裁切區域是否與四角一致）
+  if let dbg = drawCorners(cg, c) {
+    _ = writeJPEG(dbg, (outDir as NSString).appendingPathComponent("\(base)_corners_debug.jpg"), quality: 0.9)
+  }
   for mode in ["original", "copy"] {
     guard let flat = ScanAlgorithms.warpAndStraighten(cg: cg, corners: c, maxDim: 3800) else {
       print("[\(f)] \(mode): warp failed")
