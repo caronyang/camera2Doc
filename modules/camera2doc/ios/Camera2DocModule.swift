@@ -17,9 +17,9 @@ public class Camera2DocModule: Module {
       DispatchQueue.global(qos: .userInitiated).async {
         do {
           let result = try ScannerCore.detectCorners(uri: uri)
-          promise.tryResolve(result)
+          promise.resolve(result)
         } catch {
-          promise.tryReject(code: "E_DETECT", message: "\(error)")
+          promise.reject("E_DETECT", "\(error)")
         }
       }
     }
@@ -36,9 +36,9 @@ public class Camera2DocModule: Module {
           let result = try ScannerCore.process(
             uri: uri, corners: corners, mode: mode, preview: preview, toA4: toA4
           )
-          promise.tryResolve(result)
+          promise.resolve(result)
         } catch {
-          promise.tryReject(code: "E_PROCESS", message: "\(error)")
+          promise.reject("E_PROCESS", "\(error)")
         }
       }
     }

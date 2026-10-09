@@ -30,6 +30,16 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Prebuild iOS project
         run: npx expo prebuild -p ios --clean --no-install
+      - name: Cache CocoaPods + DerivedData
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+            build
+          key: ios-${{ runner.os }}-${{ hashFiles('package-lock.json', 'app.json', 'modules/camera2doc/ios/**') }}
+          restore-keys: |
+            ios-${{ runner.os }}-
       - name: CocoaPods install
         run: cd ios && pod install
       - name: List workspace/schemes
